@@ -1,10 +1,11 @@
 import sys
 import random
 import heapq
+import numpy as np
 
 class Piece:
 
-    enemyTypes = ["King", "Queen", "Bishop", "Rook", "Knight", "Obstacle"]
+    enemyTypes = ["King", "Queen", "Bishop", "Rook", "Knight"]
 
     movement = {"King": [(1, 1, 1), (1, 0, 1), (1, -1, 1), (0, -1, 1), (-1, -1, 1), (-1, 0, 1), (-1, 1, 1), (0, 1, 1)],
                 "Rook": [(1, 0, 0), (0, -1, 0), (-1, 0, 0), (0, 1, 0)],
@@ -28,33 +29,41 @@ class Piece:
 class Board:
 
 
-    def __init__(self, x: int, y: int) -> None:
+    def __init__(self, cols: int, rows: int, listOfObstacles, maxNumOfEachEnemy) -> None:
         self.enemyPos = {}  # (x, y) -> Enemy type
         self.obstaclePos = []
-        self.board_size_x = x
-        self.board_size_y = y
+        self.board_size_x = cols
+        self.board_size_y = rows
+        self.maxNumOfEachEnemy = maxNumOfEachEnemy
+        self.currentNumOfEachEnemy = [0, ] * len(maxNumOfEachEnemy)
+        self.existsPositionWithNoLegalValues = False
 
         self.blocked = []
-        for i in range(x):
-            self.blocked.append([False, ] * y)
+        for i in range(cols):
+            self.blocked.append([False, ] * rows)
         
         self.possibleEnemyTypes = []
         sample = list(range(len(Piece.enemyTypes)))
-        for i in range(x):
+        for i in range(cols):
             self.possibleEnemyTypes.append([])
-            for j in range(y):
+            for j in range(rows):
                 self.possibleEnemyTypes[i].append(sample.copy())
+        
+        # add the obstacles
+        for x, y in listOfObstacles:
+            self.addObstaclePiece(x, y)
 
 
     def addEnemyPiece(self, pieceType: str, x: int, y: int) -> None:
         self.enemyPos[(x, y)] = Piece(pieceType)
         self.blocked[x][y] = True
         self.possibleEnemyTypes[x][y] = [Piece.enemyTypes.index(pieceType)]
+        self.currentNumOfEachEnemy[Piece.enemyTypes.index(pieceType)] += 1
         
     def addObstaclePiece(self, x: int, y: int) -> None:
         self.obstaclePos.append((x, y))
         self.blocked[x][y] = True
-        self.possibleEnemyTypes[x][y] = ["Obstacle"]
+        self.possibleEnemyTypes[x][y] = []
 
     def isWithinBoard(self, x, y) -> bool:
         if (0 > x or x >= self.board_size_x) or (0 > y or y >= self.board_size_y):
@@ -77,34 +86,41 @@ class Board:
 
         if startingPosition == None:
             frontier = set(self.enemyPos.keys())
+            self.existsPositionWithNoLegalValues = False
         else:
             frontier = [startingPosition]
         
         while (len(frontier) != 0):
             x, y = frontier.pop()
             for possibleType in self.possibleEnemyTypes[x][y]:
-                if possibleType == "Knight":
+                if self.maxNumOfEachEnemy[possibleType] == 0:
+                    continue
+                if Piece.enemyTypes[possibleType] == "Knight":
                     for twoSteps in [-2, 2]:
                         for oneStep in [-1, 1]:
                             if self.isWithinBoard(x + twoSteps, y+oneStep):
                                 if (not possibleType in self.possibleEnemyTypes[x + twoSteps][y+oneStep]):
                                     continue
+
                                 self.possibleEnemyTypes[x + twoSteps][y+oneStep].remove(possibleType)
                                 frontier.add((x + twoSteps, y+oneStep))
+
                             if self.isWithinBoard(x + oneStep, y+twoSteps):
                                 if (not possibleType in self.possibleEnemyTypes[x + oneStep][y + twoSteps]):
                                     continue
+
                                 self.possibleEnemyTypes[x + oneStep][y + twoSteps].remove(possibleType)
                                 frontier.add((x + oneStep, y+twoSteps))
                 else:
                     transModel = pieceMovementModel(
-                        self, x, y, Piece.movement[possibleType])
+                        self, x, y, Piece.movement[Piece.enemyTypes[possibleType]])
                     for possibleX, possibleY in transModel.getAllPossibleNewPos():
                         if (not possibleType in self.possibleEnemyTypes[possibleX][possibleY]):
                             continue
+                        
                         self.possibleEnemyTypes[possibleX][possibleY].remove(possibleType)
                         frontier.add((possibleX, possibleY))
-
+        
     def updateThreatened(self):
 
         # Reset number of pieces threatening a piece
@@ -227,23 +243,30 @@ class pieceMovementModel():
 class State:
 
     def __init__(self, rows, cols, listOfObstacles, numOfEachEnemies) -> None:
-        self.board = []
+        self.board = Board(cols, rows, listOfObstacles, numOfEachEnemies)
         self.rows = rows
         self.cols = cols
         self.listOfObstacles = listOfObstacles
         self.numOfEachEnemies = numOfEachEnemies
-        self.currentAssignment = []
-
-    def initBoard(self) -> Board:
-        self.board = Board(self.cols, self.rows)
+        # self.currentAssignment = Assignment(numOfEachEnemies)
         
-        # add the obstacles
-        for x, y in self.listOfObstacles:
-            self.board.addObstaclePiece(x, y)
+    def setAssignment(self, assignment: dict):
+        self.board = Board(self.cols, self.rows, self.listOfObstacles, self.numOfEachEnemies)
+        for pos in assignment:
+            self.board.addEnemyPiece(assignment[pos], pos[0], pos[1])
 
-    def inference(assignment: Assignment):
-        '''run ac3 algorithm and check if the assignment is valid'''
-        pass
+    def inference(self, enemyType: str, position: tuple) -> bool:
+        self.board.addEnemyPiece(enemyType, position[0], position[1])
+        self.board.updateThreatened()
+        print("Before inference, remaining possible number of pieces:")
+        print(np.array([[len(x) for x in row] for row in self.board.possibleEnemyTypes]))
+        for x in range(self.cols):
+            for y in range(self.rows):
+                print("Checking at", x, y, "which has", self.board.possibleEnemyTypes[x][y], self.board.isBlocked(x, y))
+                if len(self.board.possibleEnemyTypes[x][y]) == 0 and (
+                    not self.board.isBlocked(x, y)):
+                    return False
+        return True
 
     def setBoard(self, board: Board) -> None:
         self.board = board
@@ -282,64 +305,108 @@ def parser(testfile):
     # enemies
     numOfEachEnemies = input().split(":")[1].split(" ")
     f.close()
-    return (rows, cols, listOfObstacles, numOfEachEnemies)
+
+    csp = State(rows, cols, listOfObstacles, numOfEachEnemies)
+    return csp
 
 class Assignment:
 
-    def __init__(self, maxNumOfEachEnemies) -> None:
+    def __init__(self, maxNumOfEachEnemy) -> None:
         # numOfEachEnemies : King, Queen, Bishop, Rook, Knight
-        self.maxNumOfEachEnemies = maxNumOfEachEnemies
+        self.maxNumOfEachEnemy = maxNumOfEachEnemy
+        self.currentNumOfEachEnemy = [0, ] * len(maxNumOfEachEnemy)
+        self.assignment = {}
     
     def isComplete(self) -> bool:
-        for i in range(5):
-            if len(self.assignment[i]) != self.numOfEachEnemies[i]:
+        for i in range(len(Piece.enemyTypes)):
+            if self.currentNumOfEachEnemy[i] != self.maxNumOfEachEnemy[i]:
                 return False
         return True
     
     def addAssignment(self, enemyType: str, position: tuple):
-        typeIndex = self.enemyTypes.index(enemyType)
-        self.assignment[typeIndex].append(position)
+        self.currentNumOfEachEnemy[Piece.enemyTypes.index(enemyType)] += 1
+        self.assignment[position] = enemyType
     
     def removeAssignment(self, enemyType: str, position: tuple):
-        typeIndex = self.enemyTypes.index(enemyType)
-        self.assignment[typeIndex].remove(position)
+        self.currentNumOfEachEnemy[Piece.enemyTypes.index(enemyType)] -= 1
+        del self.assignment[position]
+    
+    def isInAssignment(self, position: tuple):
+        return position in list(self.assignment.keys())
 
 def selectUnassignedVariable(csp: State, assignment: Assignment):
-    # TODO select the position that has the least possible pieces
+    minNumOfUnassignedVariable = 5
+    minx, miny = 0, 0
+    for x in range(csp.cols):
+        for y in range(csp.rows):
+            if assignment.isInAssignment((x, y)):
+                continue
+            if len(csp.board.possibleEnemyTypes[x][y]) < minNumOfUnassignedVariable:
+                minNumOfUnassignedVariable = len(csp.board.possibleEnemyTypes[x][y])
+                minx, miny = x, y
+                if minNumOfUnassignedVariable == 1:
+                    break
 
-
-    return (0, 0)
+    return (minx, miny)
 
 def orderDomainValues(csp: State, variable: tuple, assignment: Assignment):
-    # TODO Select the piece that will threaten the least number of other positions
-    # TODO Consistency check
-    return "King"
 
-def inference_ForwardChecking(csp: State, variable: tuple, newAssignment: Assignment):
-    # TODO implement forward checking?
-    # check if there exist empty possible location
-    return True
+    result = []
+    x, y = variable
+    sizeOfResult = len(csp.board.possibleEnemyTypes[x][y])
+    assignedPos = assignment.assignment.keys()
+    for pieceTypeID in csp.board.possibleEnemyTypes[x][y]:
+        if csp.board.maxNumOfEachEnemy[pieceTypeID] == csp.board.currentNumOfEachEnemy[pieceTypeID]:
+            continue
+        type = Piece.enemyTypes[pieceTypeID]
+        threatened_count = 0
+        if type == "Knight":
+            for twoSteps in [-2, 2]:
+                for oneStep in [-1, 1]:
+                    if csp.board.isWithinBoard(x + twoSteps, y+oneStep) or (
+                        not (x + twoSteps, y+oneStep) in assignedPos
+                    ):
+                        threatened_count += 1
+
+                    if csp.board.isWithinBoard(x + oneStep, y+twoSteps) or (
+                        not (x + oneStep, y+twoSteps) in assignedPos
+                    ):
+                        threatened_count += 1
+        else:
+            transModel = pieceMovementModel(
+                csp.board, x, y, Piece.movement[type])
+            for possibleX, possibleY in transModel.getAllPossibleNewPos():
+                if not (possibleX, possibleY) in assignedPos:
+                    threatened_count += 1
+        heapq.heappush(result, (threatened_count, type))
+
+    return heapq.nlargest(sizeOfResult, result)
 
 def backTrack(csp: State, assignment: Assignment):
     if assignment.isComplete():
         return assignment
     variable = selectUnassignedVariable(csp, assignment)
-    for value in orderDomainValues(csp, variable, assignment):
+    print("pos:", variable)
+    for count, value in orderDomainValues(csp, variable, assignment):
+        print("piece type:", value)
         assignment.addAssignment(value, variable)
-        inference = inference_ForwardChecking(csp, variable, assignment)
+        csp.setAssignment(assignment.assignment)
+        inference = csp.inference(value, variable)
+        print("result:", inference)
         if inference != "FAILURE":
-            # TODO add inference to csp
             result = backTrack(csp, assignment)
             if result != "FAILURE":
                 return result
-            # TODO remove inference from csp
         assignment.removeAssignment(value, variable)
+        csp.setAssignment(assignment.assignment)
     return "FAILURE"
 
 
 
 def search(testfile):
-    rows, cols, listOfObstacles, numOfEachEnemies = parser(testfile)
+    csp = parser(testfile)
+
+    return backTrack(csp, Assignment(csp.numOfEachEnemies))
     
 
 
@@ -355,3 +422,5 @@ def run_CSP():
 
     goalState = search(testfile)
     return goalState #Format to be returned
+
+print(run_CSP())
