@@ -4,6 +4,8 @@ import heapq
 
 class Piece:
 
+    enemyTypes = ["King", "Queen", "Bishop", "Rook", "Knight", "Obstacle"]
+
     movement = {"King": [(1, 1, 1), (1, 0, 1), (1, -1, 1), (0, -1, 1), (-1, -1, 1), (-1, 0, 1), (-1, 1, 1), (0, 1, 1)],
                 "Rook": [(1, 0, 0), (0, -1, 0), (-1, 0, 0), (0, 1, 0)],
                 "Bishop": [(1, 1, 0), (1, -1, 0), (-1, -1, 0), (-1, 1, 0)],
@@ -35,18 +37,24 @@ class Board:
         self.blocked = []
         for i in range(x):
             self.blocked.append([False, ] * y)
+        
+        self.possibleEnemyTypes = []
+        sample = list(range(len(Piece.enemyTypes)))
+        for i in range(x):
+            self.possibleEnemyTypes.append([])
+            for j in range(y):
+                self.possibleEnemyTypes[i].append(sample.copy())
+
 
     def addEnemyPiece(self, pieceType: str, x: int, y: int) -> None:
         self.enemyPos[(x, y)] = Piece(pieceType)
         self.blocked[x][y] = True
-
-    def removeEnemyPiece(self, x: int, y: int) -> None:
-        self.enemyPos.pop((x, y))
-        self.blocked[x][y] = False
-
+        self.possibleEnemyTypes[x][y] = [Piece.enemyTypes.index(pieceType)]
+        
     def addObstaclePiece(self, x: int, y: int) -> None:
         self.obstaclePos.append((x, y))
         self.blocked[x][y] = True
+        self.possibleEnemyTypes[x][y] = ["Obstacle"]
 
     def isWithinBoard(self, x, y) -> bool:
         if (0 > x or x >= self.board_size_x) or (0 > y or y >= self.board_size_y):
@@ -63,6 +71,39 @@ class Board:
     def setThreatened(self, x, y) -> None:
         if (x, y) in self.enemyPos:
             self.numOfEnemiesThreatening[x][y] += 1
+
+    def ac3(self, startingPosition = None):
+        '''Starting position is in the format of (x, y)'''
+
+        if startingPosition == None:
+            frontier = set(self.enemyPos.keys())
+        else:
+            frontier = [startingPosition]
+        
+        while (len(frontier) != 0):
+            x, y = frontier.pop()
+            for possibleType in self.possibleEnemyTypes[x][y]:
+                if possibleType == "Knight":
+                    for twoSteps in [-2, 2]:
+                        for oneStep in [-1, 1]:
+                            if self.isWithinBoard(x + twoSteps, y+oneStep):
+                                if (not possibleType in self.possibleEnemyTypes[x + twoSteps][y+oneStep]):
+                                    continue
+                                self.possibleEnemyTypes[x + twoSteps][y+oneStep].remove(possibleType)
+                                frontier.add((x + twoSteps, y+oneStep))
+                            if self.isWithinBoard(x + oneStep, y+twoSteps):
+                                if (not possibleType in self.possibleEnemyTypes[x + oneStep][y + twoSteps]):
+                                    continue
+                                self.possibleEnemyTypes[x + oneStep][y + twoSteps].remove(possibleType)
+                                frontier.add((x + oneStep, y+twoSteps))
+                else:
+                    transModel = pieceMovementModel(
+                        self, x, y, Piece.movement[possibleType])
+                    for possibleX, possibleY in transModel.getAllPossibleNewPos():
+                        if (not possibleType in self.possibleEnemyTypes[possibleX][possibleY]):
+                            continue
+                        self.possibleEnemyTypes[possibleX][possibleY].remove(possibleType)
+                        frontier.add((possibleX, possibleY))
 
     def updateThreatened(self):
 
@@ -93,6 +134,9 @@ class Board:
             if self.numOfEnemiesThreatening[x][y] == 0:
                 continue
             heapq.heappush(self.numOfEnemiesThreatening_ranked, (x, y))
+
+        # apply AC-3 algorithm to all arcs
+        self.ac3()
     
     def getTopThreatened(self, n: int):
         return heapq.nlargest(n, self.numOfEnemiesThreatening_ranked)
@@ -180,21 +224,29 @@ class pieceMovementModel():
                 xChange, yChange, maxSteps))
         return steps
 
-
 class State:
 
-    def __init__(self) -> None:
+    def __init__(self, rows, cols, listOfObstacles, numOfEachEnemies) -> None:
         self.board = []
+        self.rows = rows
+        self.cols = cols
+        self.listOfObstacles = listOfObstacles
+        self.numOfEachEnemies = numOfEachEnemies
+        self.currentAssignment = []
 
-    def initBoard(self, x: int, y: int) -> Board:
-        self.board = Board(x, y)
+    def initBoard(self) -> Board:
+        self.board = Board(self.cols, self.rows)
+        
+        # add the obstacles
+        for x, y in self.listOfObstacles:
+            self.board.addObstaclePiece(x, y)
+
+    def inference(assignment: Assignment):
+        '''run ac3 algorithm and check if the assignment is valid'''
+        pass
 
     def setBoard(self, board: Board) -> None:
         self.board = board
-
-
-### IMPORTANT: Remove any print() functions or rename any print functions/variables/string when submitting on CodePost
-### The autograder will not run if it detects any print function.
 
 def letterToX(character) -> int:
     return ord(character) - ord('a')
@@ -234,14 +286,9 @@ def parser(testfile):
 
 class Assignment:
 
-    enemyTypes = ["King", "Queen", "Bishop", "Rook", "Knight"]
-
-    def __init__(self, rows, cols, numOfEachEnemies) -> None:
+    def __init__(self, maxNumOfEachEnemies) -> None:
         # numOfEachEnemies : King, Queen, Bishop, Rook, Knight
-        self.assignment = [[], [], [], [], []]
-        self.numOfEachEnemies = numOfEachEnemies
-
-        # assiment structure (type, x, y)
+        self.maxNumOfEachEnemies = maxNumOfEachEnemies
     
     def isComplete(self) -> bool:
         for i in range(5):
@@ -249,25 +296,28 @@ class Assignment:
                 return False
         return True
     
-    def addAssignment(self, value: str, variable: tuple(int, int)):
-        typeIndex = self.enemyTypes.index(value)
-        self.assignment[typeIndex].append(variable)
+    def addAssignment(self, enemyType: str, position: tuple):
+        typeIndex = self.enemyTypes.index(enemyType)
+        self.assignment[typeIndex].append(position)
     
-    def removeAssignment(self, value: str, variable: tuple(int, int)):
-        typeIndex = self.enemyTypes.index(value)
-        self.assignment[typeIndex].remove(variable)
+    def removeAssignment(self, enemyType: str, position: tuple):
+        typeIndex = self.enemyTypes.index(enemyType)
+        self.assignment[typeIndex].remove(position)
 
 def selectUnassignedVariable(csp: State, assignment: Assignment):
     # TODO select the position that has the least possible pieces
+
+
     return (0, 0)
 
-def orderDomainValues(csp: State, variable: tuple(int, int), assignment: Assignment):
+def orderDomainValues(csp: State, variable: tuple, assignment: Assignment):
     # TODO Select the piece that will threaten the least number of other positions
     # TODO Consistency check
     return "King"
 
-def inference_ForwardChecking(csp: State, var: tuple(int, int), assignment: Assignment):
+def inference_ForwardChecking(csp: State, variable: tuple, newAssignment: Assignment):
     # TODO implement forward checking?
+    # check if there exist empty possible location
     return True
 
 def backTrack(csp: State, assignment: Assignment):
