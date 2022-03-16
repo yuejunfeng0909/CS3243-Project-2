@@ -11,7 +11,7 @@ class Piece:
                 "Rook": [(1, 0, 0), (0, -1, 0), (-1, 0, 0), (0, 1, 0)],
                 "Bishop": [(1, 1, 0), (1, -1, 0), (-1, -1, 0), (-1, 1, 0)],
                 "Queen": [(1, 0, 0), (0, -1, 0), (-1, 0, 0), (0, 1, 0), (1, 1, 0), (1, -1, 0), (-1, -1, 0), (-1, 1, 0)],
-                "Knight": [],
+                "Knight": [(2, 1, 1), (2, -1, 1), (1, 2, 1), (1, -2, 1), (-2, 1, 1), (-2, -1, 1), (-1, 2, 1), (-1, -2, 1)],
                 "Obstacle": [],
                 "Empty": [],
                 }
@@ -19,11 +19,10 @@ class Piece:
     def __init__(self, pieceType: str) -> None:
         self.type = pieceType
 
-    def isEmpty(self) -> bool:
-        return self.type == "Empty"
-
-    def possibleMovement(self):
-        return self.movement[self.type]
+    def possibleMovement(self, enemyType = None):
+        if enemyType == None:
+            return self.movement[self.type]
+        return self.movement[enemyType]
 
 
 class Board:
@@ -31,19 +30,22 @@ class Board:
 
     def __init__(self, cols: int, rows: int, listOfObstacles, maxNumOfEachEnemy) -> None:
         self.enemyPos = {}  # (x, y) -> Enemy type
-        self.obstaclePos = []
+        self.numberOfEachEnemy = {
+            "King": 0, 
+            "Queen": 0, 
+            "Bishop": 0, 
+            "Rook": 0, 
+            "Knight": 0
+        } 
+        self.obstaclePos = set() # to keep track which position to skip
+
         self.board_size_x = cols
         self.board_size_y = rows
         self.maxNumOfEachEnemy = maxNumOfEachEnemy
-        self.currentNumOfEachEnemy = [0, ] * len(maxNumOfEachEnemy)
-        self.existsPositionWithNoLegalValues = False
-
-        self.blocked = []
-        for i in range(cols):
-            self.blocked.append([False, ] * rows)
         
+        # 2D array to store possible enemy types at the particular position
         self.possibleEnemyTypes = []
-        sample = list(range(len(Piece.enemyTypes)))
+        sample = set(self.numberOfEachEnemy.keys())
         for i in range(cols):
             self.possibleEnemyTypes.append([])
             for j in range(rows):
@@ -53,138 +55,49 @@ class Board:
         for x, y in listOfObstacles:
             self.addObstaclePiece(x, y)
 
+    def isBlocked(self, x: int, y:int) -> bool:
+        return ((x, y) in self.obstaclePos) or ((x, y) in self.enemyPos.keys())
+
+    def isOccupiedByEnemyPiece(self, x: int, y: int) -> bool:
+        return (x, y) in self.enemyPos.keys()
 
     def addEnemyPiece(self, pieceType: str, x: int, y: int) -> None:
         self.enemyPos[(x, y)] = Piece(pieceType)
-        self.blocked[x][y] = True
-        self.possibleEnemyTypes[x][y] = [Piece.enemyTypes.index(pieceType)]
-        self.currentNumOfEachEnemy[Piece.enemyTypes.index(pieceType)] += 1
+        self.possibleEnemyTypes[x][y] = {pieceType}
+        self.numberOfEachEnemy[pieceType] += 1
+        
+        # mark all threatened position's available pieces as []
+        transitionModel = pieceMovementModel(self, x, y, pieceType)
+        for threatenedX, threatenedY in transitionModel.getAllPossibleNewPos():
+            self.possibleEnemyTypes[threatenedX][threatenedY] = set()
+
+        # for all other pieces type, T, at the position, mark the threatened available pieces -T
+        for otherType in Piece.enemyTypes:
+            if otherType == pieceType:
+                continue
+            transitionModel = pieceMovementModel(self, x, y, otherType)
+            for threatenedX, threatenedY in transitionModel.getAllPossibleNewPos():
+                self.possibleEnemyTypes[threatenedX][threatenedY].discard(otherType)
         
     def addObstaclePiece(self, x: int, y: int) -> None:
-        self.obstaclePos.append((x, y))
-        self.blocked[x][y] = True
-        self.possibleEnemyTypes[x][y] = []
+        self.obstaclePos.add((x, y))
+        self.possibleEnemyTypes[x][y] = set()
 
     def isWithinBoard(self, x, y) -> bool:
         if (0 > x or x >= self.board_size_x) or (0 > y or y >= self.board_size_y):
             return False
-        return True
-
-    def isThreatened(self, x, y) -> bool:
-        # Must update threatened first!!!
-        return self.numOfEnemiesThreatening[x][y] > 0
-
-    def isBlocked(self, x, y) -> bool:
-        return (x, y) in self.obstaclePos or (x, y) in self.enemyPos.keys()
-
-    def setThreatened(self, x, y) -> None:
-        if (x, y) in self.enemyPos:
-            self.numOfEnemiesThreatening[x][y] += 1
-
-    def ac3(self, startingPosition = None):
-        '''Starting position is in the format of (x, y)'''
-
-        if startingPosition == None:
-            frontier = set(self.enemyPos.keys())
-            self.existsPositionWithNoLegalValues = False
-        else:
-            frontier = [startingPosition]
-        
-        while (len(frontier) != 0):
-            x, y = frontier.pop()
-            for possibleType in self.possibleEnemyTypes[x][y]:
-                if self.maxNumOfEachEnemy[possibleType] == 0:
-                    continue
-                if Piece.enemyTypes[possibleType] == "Knight":
-                    for twoSteps in [-2, 2]:
-                        for oneStep in [-1, 1]:
-                            if self.isWithinBoard(x + twoSteps, y+oneStep):
-                                if (not possibleType in self.possibleEnemyTypes[x + twoSteps][y+oneStep]):
-                                    continue
-
-                                self.possibleEnemyTypes[x + twoSteps][y+oneStep].remove(possibleType)
-                                frontier.add((x + twoSteps, y+oneStep))
-
-                            if self.isWithinBoard(x + oneStep, y+twoSteps):
-                                if (not possibleType in self.possibleEnemyTypes[x + oneStep][y + twoSteps]):
-                                    continue
-
-                                self.possibleEnemyTypes[x + oneStep][y + twoSteps].remove(possibleType)
-                                frontier.add((x + oneStep, y+twoSteps))
-                else:
-                    transModel = pieceMovementModel(
-                        self, x, y, Piece.movement[Piece.enemyTypes[possibleType]])
-                    for possibleX, possibleY in transModel.getAllPossibleNewPos():
-                        if (not possibleType in self.possibleEnemyTypes[possibleX][possibleY]):
-                            continue
-                        
-                        self.possibleEnemyTypes[possibleX][possibleY].remove(possibleType)
-                        frontier.add((possibleX, possibleY))
-        
-    def updateThreatened(self):
-
-        # Reset number of pieces threatening a piece
-        self.numOfEnemiesThreatening = []
-
-        for i in range(self.board_size_x):
-            self.numOfEnemiesThreatening.append([0, ] * self.board_size_y)
-
-        for x, y in self.enemyPos:
-            piece: Piece = self.enemyPos[(x, y)]
-            if piece.type == "Knight":
-                for twoSteps in [-2, 2]:
-                    for oneStep in [-1, 1]:
-                        if self.isWithinBoard(x + twoSteps, y+oneStep):
-                            self.setThreatened(x+twoSteps, y+oneStep)
-                        if self.isWithinBoard(x + oneStep, y+twoSteps):
-                            self.setThreatened(x+oneStep, y+twoSteps)
-            else:
-                transModel = pieceMovementModel(
-                    self, x, y, piece.possibleMovement())
-                for possibleX, possibleY in transModel.getAllPossibleNewPos():
-                    self.setThreatened(possibleX, possibleY)
-        
-        # calculate to find out the ranking of threatened
-        self.numOfEnemiesThreatening_ranked = []
-        for x, y in self.enemyPos:
-            if self.numOfEnemiesThreatening[x][y] == 0:
-                continue
-            heapq.heappush(self.numOfEnemiesThreatening_ranked, (x, y))
-
-        # apply AC-3 algorithm to all arcs
-        self.ac3()
-    
-    def getTopThreatened(self, n: int):
-        return heapq.nlargest(n, self.numOfEnemiesThreatening_ranked)
-
-    def getMostThreatenedPos(self):
-        highestThreatened = 0
-        resultX, resultY = list(self.enemyPos.keys())[0]
-
-        for x, y in self.enemyPos:
-            # print(x, y, self.numOfEnemiesThreatening[x][y])
-            if self.numOfEnemiesThreatening[x][y] > highestThreatened:
-                highestThreatened = self.numOfEnemiesThreatening[x][y]
-                resultX, resultY = x, y
-
-        return (resultX, resultY, highestThreatened)
+    #     return True
 
     def setGoal(self, K: int) -> None:
         self.K = K
 
     def goalCheck(self) -> bool:
-        return len(self.enemyPos) >= self.K and self.sumOfThreatened() == 0
-    
-    def sumOfThreatened(self):
-        sum = 0
-        for x, y in self.enemyPos:
-            sum += self.numOfEnemiesThreatening[x][y]
-        return sum
+        return len(self.enemyPos) >= self.K
 
 
 class pieceMovementModel():
 
-    def __init__(self, board: Board, x: int, y: int, piece_movements):
+    def __init__(self, board: Board, x: int, y: int, piece_movements: list):
         self.x = x
         self.y = y
         self.board = board
@@ -195,16 +108,18 @@ class pieceMovementModel():
         new_y = self.y + y_change
         return (new_x, new_y)
 
-    def getAllPossibleMovementToDirection(self, x_change: int, y_change: int, max_steps=0):
+    def __getAllPossibleMovementToDirection(self, x_change: int, y_change: int, max_steps=0):
         '''Get all the positions that the piece can move to, including position that are being threatened by other pieces'''
         if max_steps == 0:
             max_steps = max(self.board.board_size_x, self.board.board_size_y)
         steps = []
         for i in range(max_steps):
             new_pos = self.moveToDirection((i+1) * x_change, (i+1) * y_change)
-            if not self.board.isWithinBoard(new_pos[0], new_pos[1]):
+            if (not self.board.isWithinBoard(new_pos[0], new_pos[1])) or (new_pos in self.board.obstaclePos):
                 break
             if self.board.isBlocked(new_pos[0], new_pos[1]):
+                # in the context of CSP, the piece violates constraints
+                print("ERROR: CONSTRAINT VIOLATION")
                 steps.append(new_pos)
                 break
             steps.append(new_pos)
@@ -214,29 +129,7 @@ class pieceMovementModel():
         steps = []
         for movement in self.movements:
             xChange, yChange, maxSteps = movement
-            steps.extend(self.getAllPossibleMovementToDirection(
-                xChange, yChange, maxSteps))
-        return steps
-
-    def getAllAllowedMovementToDirection(self, x_change: int, y_change: int, max_steps=0):
-        '''Get all the positions that the piece can move to without being threatened'''
-        if max_steps == 0:
-            max_steps = max(self.board.board_size_x, self.board.board_size_y)
-        steps = []
-        for i in range(max_steps):
-            new_pos = self.moveToDirection((i+1) * x_change, (i+1) * y_change)
-            if not self.board.isWithinBoard(new_pos[0], new_pos[1]) or self.board.isBlocked(new_pos[0], new_pos[1]):
-                break
-            if self.board.isThreatened(new_pos[0], new_pos[1]):
-                continue
-            steps.append(new_pos)
-        return steps
-
-    def getAllAllowedNewPos(self):
-        steps = []
-        for movement in self.movements:
-            xChange, yChange, maxSteps = movement
-            steps.extend(self.getAllAllowedMovementToDirection(
+            steps.extend(self.__getAllPossibleMovementToDirection(
                 xChange, yChange, maxSteps))
         return steps
 
@@ -248,25 +141,33 @@ class State:
         self.cols = cols
         self.listOfObstacles = listOfObstacles
         self.numOfEachEnemies = numOfEachEnemies
-        # self.currentAssignment = Assignment(numOfEachEnemies)
         
     def setAssignment(self, assignment: dict):
         self.board = Board(self.cols, self.rows, self.listOfObstacles, self.numOfEachEnemies)
         for pos in assignment:
             self.board.addEnemyPiece(assignment[pos], pos[0], pos[1])
+        
+        # run AC-3 algo on all positions
+        self.board.ac3()
+    
+    def updateAssignment(self, position: tuple, enemyType: str):
+        self.board.addEnemyPiece(enemyType, position[0], position[1])
 
     def inference(self, enemyType: str, position: tuple) -> bool:
-        self.board.addEnemyPiece(enemyType, position[0], position[1])
-        self.board.updateThreatened()
+
+        # TODO check if all non-assigned positions are empty sets
+
+        self.updateAssignment(enemyType, position)
+        self.board.ac3(position)
+
         print("Before inference, remaining possible number of pieces:")
         print(np.array([[len(x) for x in row] for row in self.board.possibleEnemyTypes]))
         for x in range(self.cols):
             for y in range(self.rows):
-                print("Checking at", x, y, "which has", self.board.possibleEnemyTypes[x][y], self.board.isBlocked(x, y))
-                if len(self.board.possibleEnemyTypes[x][y]) == 0 and (
-                    not self.board.isBlocked(x, y)):
-                    return False
-        return True
+                print("Checking at", x, y, "which has", self.board.possibleEnemyTypes[x][y])
+                if len(self.board.possibleEnemyTypes[x][y]) != 0:
+                    return True
+        return False
 
     def setBoard(self, board: Board) -> None:
         self.board = board
@@ -335,6 +236,9 @@ class Assignment:
         return position in list(self.assignment.keys())
 
 def selectUnassignedVariable(csp: State, assignment: Assignment):
+    '''Select the position that has the least number of unassigned variable that is non-empty'''
+    # TODO update order variable
+
     minNumOfUnassignedVariable = 5
     minx, miny = 0, 0
     for x in range(csp.cols):
@@ -350,6 +254,8 @@ def selectUnassignedVariable(csp: State, assignment: Assignment):
     return (minx, miny)
 
 def orderDomainValues(csp: State, variable: tuple, assignment: Assignment):
+    '''Select the piece that could threaten least number '''
+    # TODO update order domain values
 
     result = []
     x, y = variable
