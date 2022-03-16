@@ -1,6 +1,7 @@
 import sys
 import random
 import heapq
+from time import time
 import numpy as np
 
 class Piece:
@@ -19,9 +20,7 @@ class Piece:
     def __init__(self, pieceType: str) -> None:
         self.type = pieceType
 
-    def possibleMovement(self, enemyType = None):
-        if enemyType == None:
-            return self.movement[self.type]
+    def possibleMovement(enemyType = None):
         return Piece.movement[enemyType]
 
 
@@ -63,7 +62,7 @@ class Board:
         return (x, y) in self.enemyPos.keys()
 
     def addEnemyPiece(self, pieceType: str, x: int, y: int) -> None:
-        self.enemyPos[(x, y)] = Piece(pieceType)
+        self.enemyPos[(x, y)] = pieceType
         self.possibleEnemyTypes[x][y] = {pieceType}
         self.numberOfEachEnemy[pieceType] += 1
         
@@ -114,7 +113,7 @@ class pieceMovementModel():
                 break
             if self.board.isBlocked(new_pos[0], new_pos[1]):
                 # in the context of CSP, the piece violates constraints
-                print("ERROR: CONSTRAINT VIOLATION")
+                # print("ERROR: CONSTRAINT VIOLATION", new_pos[0], new_pos[1])
                 steps.append(new_pos)
                 break
             steps.append(new_pos)
@@ -142,11 +141,10 @@ class State:
             self.board.addEnemyPiece(assignment[pos], pos[0], pos[1])
     
     def updateAssignment(self, enemyType: str, position: tuple):
-        print(enemyType, "added at", position)
         self.board.addEnemyPiece(enemyType, position[0], position[1])
 
     def inference(self) -> bool:
-        print(np.array([[len(x) for x in row] for row in self.board.possibleEnemyTypes]))
+        # print(np.array([[len(x) for x in row] for row in self.board.possibleEnemyTypes]))
         for x in range(self.cols):
             for y in range(self.rows):
                 if self.board.isBlocked(x, y):
@@ -237,30 +235,25 @@ class Assignment:
 def selectUnassignedVariable(csp: State, assignment: Assignment):
     '''Select the position that has the least number of unassigned variable that is non-empty'''
 
-    minNumOfUnassignedVariable = 6
-    minx, miny = 0, 0
+    result = []
+
     for x in range(csp.cols):
         for y in range(csp.rows):
             count = len(csp.board.possibleEnemyTypes[x][y])
             if csp.board.isBlocked(x, y) or count == 0:
                 continue
-            if count < minNumOfUnassignedVariable:
-                minNumOfUnassignedVariable = count
-                minx, miny = x, y
-                if minNumOfUnassignedVariable == 1:
-                    break
-    return (minx, miny)
+            result.append((count, (x, y)))
+    
+    return sorted(result)
 
 def orderDomainValues(csp: State, variable: tuple, assignment: Assignment):
     '''Order the piece types in increasing number of positions threatened'''
 
     result = []
     x, y = variable
-    print(csp.board.possibleEnemyTypes[x][y])
     sizeOfResult = len(csp.board.possibleEnemyTypes[x][y])
     assignedPos = assignment.assignment.keys()
     for pieceType in csp.board.possibleEnemyTypes[x][y]:
-        print(pieceType, "has max of", csp.board.maxNumOfEachEnemy[pieceType], ", currently is", csp.board.numberOfEachEnemy[pieceType])
         if csp.board.maxNumOfEachEnemy[pieceType] == csp.board.numberOfEachEnemy[pieceType]:
             continue
         threatened_count = 0
@@ -270,28 +263,26 @@ def orderDomainValues(csp: State, variable: tuple, assignment: Assignment):
             if not (possibleX, possibleY) in assignedPos:
                 threatened_count += 1
         heapq.heappush(result, (threatened_count, pieceType))
-    print("Result", heapq.nlargest(sizeOfResult, result))
     return heapq.nlargest(sizeOfResult, result)
 
 def backTrack(csp: State, assignment: Assignment):
-    input()
+    # input()
     if assignment.isComplete():
+        print(assignment.assignment)
         return assignment
-    position = selectUnassignedVariable(csp, assignment)
-    for count, enemyType in orderDomainValues(csp, position, assignment):
-        print("-"*80)
-        print("piece type:", enemyType)
-        assignment.addAssignment(enemyType, position)
-        csp.updateAssignment(enemyType, position)
-        print("current assignment", assignment.assignment)
-        inference = csp.inference()
-        print("result:", inference)
-        if inference != False:
-            result = backTrack(csp, assignment)
-            if result != "FAILURE":
-                return result
-        assignment.removeAssignment(enemyType, position)
-        csp.setAssignment(assignment.assignment)
+    selectUnassignedVariable(csp, assignment)
+    for _, position in selectUnassignedVariable(csp, assignment):
+        for _, enemyType in orderDomainValues(csp, position, assignment):
+            assignment.addAssignment(enemyType, position)
+            csp.updateAssignment(enemyType, position)
+            inference = csp.inference()
+            if inference != False:
+                result = backTrack(csp, assignment)
+                if result != "FAILURE":
+                    return result
+            assignment.removeAssignment(enemyType, position)
+            csp.setAssignment(assignment.assignment)
+            # print("Backtrack to", assignment.assignment)
     return "FAILURE"
 
 
@@ -316,4 +307,6 @@ def run_CSP():
     goalState = search(testfile)
     return goalState #Format to be returned
 
+startTime = time()
 print(run_CSP())
+print(time() - startTime)
