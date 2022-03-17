@@ -243,9 +243,8 @@ def selectUnassignedVariable(csp: State, assignment: Assignment):
         if assignment.currentNumOfEachEnemy[pieceType] == assignment.maxNumOfEachEnemy[pieceType]:
             continue
         remainingTypes.append(pieceType)
-    
     if len(remainingTypes) == 1:
-        return pieceType
+        return remainingTypes[0]
     minimumCount = csp.cols * csp.rows
     minimumType = None
     for pieceType in remainingTypes:
@@ -268,7 +267,6 @@ def selectUnassignedVariable(csp: State, assignment: Assignment):
         
         minimumType = pieceType
         minimumCount = count
-    
     return minimumType
 
 def orderDomainValues(csp: State, pieceType: str, assignment: Assignment):
@@ -278,6 +276,9 @@ def orderDomainValues(csp: State, pieceType: str, assignment: Assignment):
     result = []
     # for all position
     for x, y in list(itertools.product(range(csp.cols), range(csp.rows))):
+        if (x, y) in csp.board.enemyPos or (
+            pieceType not in csp.board.possibleEnemyTypes[x][y]):
+            continue
         
         transModel = pieceMovementModel(csp.board, x, y, pieceType)
         # add the number of positions threatened by the piece at that position to the list
@@ -287,8 +288,8 @@ def orderDomainValues(csp: State, pieceType: str, assignment: Assignment):
     return result    
 
 def backTrack(csp: State, assignment: Assignment):
-    print("Current assignment", assignment.assignment)
-    input()
+    # print("current assignment", assignment.assignment)
+    # input()
     if assignment.isComplete():
         print(assignment.assignment)
         return assignment
@@ -303,7 +304,7 @@ def backTrack(csp: State, assignment: Assignment):
                 return result
         assignment.removeAssignment(enemyType, position)
         csp.setAssignment(assignment.assignment)
-        print("Backtrack to", assignment.assignment)
+        # print("Backtrack to", assignment.assignment)
     return "FAILURE"
 
 
