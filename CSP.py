@@ -1,9 +1,9 @@
 import sys
 import random
 import heapq
-from time import time
+# from time import time
 import itertools
-import numpy as np
+# import numpy as np
 
 class Piece:
 
@@ -146,13 +146,18 @@ class State:
 
     def inference(self) -> bool:
         # print(np.array([[len(x) for x in row] for row in self.board.possibleEnemyTypes]))
-        # return false if there is not enough remaining
+        remainingPiecesCount = sum([self.maxNumberOfEachEnemies[pieceType] for pieceType in Piece.enemyTypes]) - len(self.board.enemyPos)
+        # print("remaining pieces", remainingPiecesCount)
+
+        remainingPositionsCount = 0
         for x in range(self.cols):
             for y in range(self.rows):
                 if self.board.isBlocked(x, y):
                     continue
                 if len(self.board.possibleEnemyTypes[x][y]) != 0:
-                    return True
+                    remainingPositionsCount += 1
+                    if remainingPositionsCount >= remainingPiecesCount:
+                        return True
         return False
 
     def setBoard(self, board: Board) -> None:
@@ -271,7 +276,6 @@ def selectUnassignedVariable(csp: State, assignment: Assignment):
 
 def orderDomainValues(csp: State, pieceType: str, assignment: Assignment):
     '''Order the positions in increasing number of positions threatened by the piece'''
-    # TODO change this to select position
 
     result = []
     # for all position
@@ -285,18 +289,21 @@ def orderDomainValues(csp: State, pieceType: str, assignment: Assignment):
         result.append((len(transModel.getAllPossibleNewPos()), (x, y)))
 
     result.sort()
-    return result    
+    return result
 
 def backTrack(csp: State, assignment: Assignment):
     # print("current assignment", assignment.assignment)
     # input()
-    if assignment.isComplete():
-        print(assignment.assignment)
-        return assignment
+    # print("-"*80)
     enemyType = selectUnassignedVariable(csp, assignment)
     for _, position in orderDomainValues(csp, enemyType, assignment):
         assignment.addAssignment(enemyType, position)
         csp.updateAssignment(enemyType, position)
+        
+        if assignment.isComplete():
+            # print(assignment.assignment)
+            return assignment.assignment
+
         inference = csp.inference()
         if inference != False:
             result = backTrack(csp, assignment)
@@ -312,6 +319,18 @@ def backTrack(csp: State, assignment: Assignment):
 def search(testfile):
     csp = parser(testfile)
 
+    # testAssignment = Assignment(csp.maxNumberOfEachEnemies)
+    # testAssignment.addAssignment("Queen", (0, 0))
+    # testAssignment.addAssignment("Queen", (1, 6))
+    # testAssignment.addAssignment("Queen", (2, 4))
+    # testAssignment.addAssignment("Queen", (3, 7))
+    # testAssignment.addAssignment("Queen", (4, 1))
+    # testAssignment.addAssignment("Queen", (5, 3))
+    # testAssignment.addAssignment("Queen", (6, 5))
+    # testAssignment.addAssignment("Queen", (7, 2))
+    # csp.setAssignment(testAssignment.assignment)
+
+    # return backTrack(csp, testAssignment)
     return backTrack(csp, Assignment(csp.maxNumberOfEachEnemies))
     
 
@@ -325,10 +344,14 @@ def search(testfile):
 def run_CSP():
     # You can code in here but you cannot remove this function or change the return type
     testfile = sys.argv[1] #Do not remove. This is your input testfile.
+    rawResult = search(testfile)
 
-    goalState = search(testfile)
+    goalState = {}
+    for pos in rawResult.keys():
+        goalState[XYtoPos(pos)] = rawResult[pos]
+    
     return goalState #Format to be returned
 
-startTime = time()
-print(run_CSP())
-print(time() - startTime)
+# startTime = time()
+# print(run_CSP())
+# print(time() - startTime)
