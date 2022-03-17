@@ -236,7 +236,6 @@ class Assignment:
 
 def selectUnassignedVariable(csp: State, assignment: Assignment):
     '''Select the piece type that has the least number of available positions'''
-    # TODO change this to select piece type
 
     remainingTypes = []
     # for all remaining piece types that are yet to be assigned
@@ -272,45 +271,39 @@ def selectUnassignedVariable(csp: State, assignment: Assignment):
     
     return minimumType
 
-def orderDomainValues(csp: State, variable: tuple, assignment: Assignment):
+def orderDomainValues(csp: State, pieceType: str, assignment: Assignment):
     '''Order the positions in increasing number of positions threatened by the piece'''
     # TODO change this to select position
 
     result = []
-    x, y = variable
-    sizeOfResult = len(csp.board.possibleEnemyTypes[x][y])
-    assignedPos = assignment.assignment.keys()
-    for pieceType in csp.board.possibleEnemyTypes[x][y]:
-        if csp.board.maxNumOfEachEnemy[pieceType] == csp.board.numberOfEachEnemy[pieceType]:
-            continue
-        threatened_count = 0
-        transModel = pieceMovementModel(
-            csp.board, x, y, pieceType)
-        for possibleX, possibleY in transModel.getAllPossibleNewPos():
-            if not (possibleX, possibleY) in assignedPos:
-                threatened_count += 1
-        result.append((threatened_count, pieceType))
+    # for all position
+    for x, y in list(itertools.product(range(csp.cols), range(csp.rows))):
+        
+        transModel = pieceMovementModel(csp.board, x, y, pieceType)
+        # add the number of positions threatened by the piece at that position to the list
+        result.append((len(transModel.getAllPossibleNewPos()), (x, y)))
+
     result.sort()
-    return result
+    return result    
 
 def backTrack(csp: State, assignment: Assignment):
-    # input()
+    print("Current assignment", assignment.assignment)
+    input()
     if assignment.isComplete():
         print(assignment.assignment)
         return assignment
-    selectUnassignedVariable(csp, assignment)
-    for _, position in selectUnassignedVariable(csp, assignment):
-        for _, enemyType in orderDomainValues(csp, position, assignment):
-            assignment.addAssignment(enemyType, position)
-            csp.updateAssignment(enemyType, position)
-            inference = csp.inference()
-            if inference != False:
-                result = backTrack(csp, assignment)
-                if result != "FAILURE":
-                    return result
-            assignment.removeAssignment(enemyType, position)
-            csp.setAssignment(assignment.assignment)
-            print("Backtrack to", assignment.assignment)
+    enemyType = selectUnassignedVariable(csp, assignment)
+    for _, position in orderDomainValues(csp, enemyType, assignment):
+        assignment.addAssignment(enemyType, position)
+        csp.updateAssignment(enemyType, position)
+        inference = csp.inference()
+        if inference != False:
+            result = backTrack(csp, assignment)
+            if result != "FAILURE":
+                return result
+        assignment.removeAssignment(enemyType, position)
+        csp.setAssignment(assignment.assignment)
+        print("Backtrack to", assignment.assignment)
     return "FAILURE"
 
 
