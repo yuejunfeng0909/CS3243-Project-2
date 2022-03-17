@@ -2,6 +2,7 @@ import sys
 import random
 import heapq
 from time import time
+import itertools
 import numpy as np
 
 class Piece:
@@ -145,6 +146,7 @@ class State:
 
     def inference(self) -> bool:
         # print(np.array([[len(x) for x in row] for row in self.board.possibleEnemyTypes]))
+        # return false if there is not enough remaining
         for x in range(self.cols):
             for y in range(self.rows):
                 if self.board.isBlocked(x, y):
@@ -233,21 +235,46 @@ class Assignment:
         return position in list(self.assignment.keys())
 
 def selectUnassignedVariable(csp: State, assignment: Assignment):
-    '''Select the position that has the least number of unassigned variable that is non-empty'''
+    '''Select the piece type that has the least number of available positions'''
+    # TODO change this to select piece type
 
-    result = []
-
-    for x in range(csp.cols):
-        for y in range(csp.rows):
-            count = len(csp.board.possibleEnemyTypes[x][y])
-            if csp.board.isBlocked(x, y) or count == 0:
-                continue
-            result.append((count, (x, y)))
+    remainingTypes = []
+    # for all remaining piece types that are yet to be assigned
+    for pieceType in Piece.enemyTypes:
+        if assignment.currentNumOfEachEnemy[pieceType] == assignment.maxNumOfEachEnemy[pieceType]:
+            continue
+        remainingTypes.append(pieceType)
     
-    return sorted(result)
+    if len(remainingTypes) == 1:
+        return pieceType
+    minimumCount = csp.cols * csp.rows
+    minimumType = None
+    for pieceType in remainingTypes:
+        # count the number of positions that has this piece type 
+        count = 0
+        
+        skip = False
+        for x, y in list(itertools.product(range(csp.cols), range(csp.rows))):
+            if pieceType in csp.board.possibleEnemyTypes[x][y]:
+                count += 1
+                if count > minimumCount:
+                    skip = True
+                    break
+        
+        if skip:
+            continue
+
+        if count == 1:
+            return pieceType
+        
+        minimumType = pieceType
+        minimumCount = count
+    
+    return minimumType
 
 def orderDomainValues(csp: State, variable: tuple, assignment: Assignment):
-    '''Order the piece types in increasing number of positions threatened'''
+    '''Order the positions in increasing number of positions threatened by the piece'''
+    # TODO change this to select position
 
     result = []
     x, y = variable
@@ -262,8 +289,9 @@ def orderDomainValues(csp: State, variable: tuple, assignment: Assignment):
         for possibleX, possibleY in transModel.getAllPossibleNewPos():
             if not (possibleX, possibleY) in assignedPos:
                 threatened_count += 1
-        heapq.heappush(result, (threatened_count, pieceType))
-    return heapq.nlargest(sizeOfResult, result)
+        result.append((threatened_count, pieceType))
+    result.sort()
+    return result
 
 def backTrack(csp: State, assignment: Assignment):
     # input()
@@ -282,7 +310,7 @@ def backTrack(csp: State, assignment: Assignment):
                     return result
             assignment.removeAssignment(enemyType, position)
             csp.setAssignment(assignment.assignment)
-            # print("Backtrack to", assignment.assignment)
+            print("Backtrack to", assignment.assignment)
     return "FAILURE"
 
 
