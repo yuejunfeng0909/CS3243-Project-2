@@ -1,6 +1,4 @@
 import sys
-import random
-import heapq
 # from time import time
 import itertools
 # import numpy as np
@@ -45,7 +43,13 @@ class Board:
         
         # 2D array to store possible enemy types at the particular position
         self.possibleEnemyTypes = []
-        sample = set(self.numberOfEachEnemy.keys())
+        sample = set()
+
+        # only add the pieces that we are interested in into the sample
+        for enemy in Piece.enemyTypes:
+            if maxNumOfEachEnemy[enemy] != 0:
+                sample.add(enemy)
+
         for i in range(cols):
             self.possibleEnemyTypes.append([])
             for j in range(rows):
@@ -150,14 +154,13 @@ class State:
         # print("remaining pieces", remainingPiecesCount)
 
         remainingPositionsCount = 0
-        for x in range(self.cols):
-            for y in range(self.rows):
-                if self.board.isBlocked(x, y):
-                    continue
-                if len(self.board.possibleEnemyTypes[x][y]) != 0:
-                    remainingPositionsCount += 1
-                    if remainingPositionsCount >= remainingPiecesCount:
-                        return True
+        for x, y in list(itertools.product(range(self.cols), range(self.rows))):
+            if self.board.isBlocked(x, y):
+                continue
+            if len(self.board.possibleEnemyTypes[x][y]) != 0:
+                remainingPositionsCount += 1
+        if remainingPositionsCount >= remainingPiecesCount:
+            return True
         return False
 
     def setBoard(self, board: Board) -> None:
@@ -221,6 +224,21 @@ class Assignment:
             "Knight": 0
         } 
         self.assignment = {}
+        self.checked = {
+            "King": set(), 
+            "Queen": set(), 
+            "Bishop": set(), 
+            "Rook": set(), 
+            "Knight": set()
+        } 
+
+    def copy(self):
+        newCopy = Assignment(self.maxNumOfEachEnemy)
+        for position in self.assignment.keys():
+            newCopy.addAssignment(self.assignment[position], position)
+        for enemyType in Piece.enemyTypes:
+            newCopy.checked[enemyType] = self.checked[enemyType].copy()
+        return newCopy
     
     def isComplete(self) -> bool:
         for enemyType in Piece.enemyTypes:
@@ -231,6 +249,7 @@ class Assignment:
     def addAssignment(self, enemyType: str, position: tuple):
         self.currentNumOfEachEnemy[enemyType] += 1
         self.assignment[position] = enemyType
+        self.checked[enemyType].add(position)
     
     def removeAssignment(self, enemyType: str, position: tuple):
         self.currentNumOfEachEnemy[enemyType] -= 1
@@ -281,14 +300,15 @@ def orderDomainValues(csp: State, pieceType: str, assignment: Assignment):
     # for all position
     for x, y in list(itertools.product(range(csp.cols), range(csp.rows))):
         if (x, y) in csp.board.enemyPos or (
-            pieceType not in csp.board.possibleEnemyTypes[x][y]):
+            pieceType not in csp.board.possibleEnemyTypes[x][y]) or (
+            (x, y) in assignment.checked[pieceType]):
             continue
-        
-        transModel = pieceMovementModel(csp.board, x, y, pieceType)
-        # add the number of positions threatened by the piece at that position to the list
-        result.append((len(transModel.getAllPossibleNewPos()), (x, y)))
+        result.append((x, y))
+        # transModel = pieceMovementModel(csp.board, x, y, pieceType)
+        # # add the number of positions threatened by the piece at that position to the list
+        # result.append((len(transModel.getAllPossibleNewPos()), (x, y)))
 
-    result.sort()
+    # result.sort()
     return result
 
 def backTrack(csp: State, assignment: Assignment):
@@ -296,7 +316,7 @@ def backTrack(csp: State, assignment: Assignment):
     # input()
     # print("-"*80)
     enemyType = selectUnassignedVariable(csp, assignment)
-    for _, position in orderDomainValues(csp, enemyType, assignment):
+    for position in orderDomainValues(csp, enemyType, assignment):
         assignment.addAssignment(enemyType, position)
         csp.updateAssignment(enemyType, position)
         
@@ -306,7 +326,7 @@ def backTrack(csp: State, assignment: Assignment):
 
         inference = csp.inference()
         if inference != False:
-            result = backTrack(csp, assignment)
+            result = backTrack(csp, assignment.copy())
             if result != "FAILURE":
                 return result
         assignment.removeAssignment(enemyType, position)
@@ -318,19 +338,6 @@ def backTrack(csp: State, assignment: Assignment):
 
 def search(testfile):
     csp = parser(testfile)
-
-    # testAssignment = Assignment(csp.maxNumberOfEachEnemies)
-    # testAssignment.addAssignment("Queen", (0, 0))
-    # testAssignment.addAssignment("Queen", (1, 6))
-    # testAssignment.addAssignment("Queen", (2, 4))
-    # testAssignment.addAssignment("Queen", (3, 7))
-    # testAssignment.addAssignment("Queen", (4, 1))
-    # testAssignment.addAssignment("Queen", (5, 3))
-    # testAssignment.addAssignment("Queen", (6, 5))
-    # testAssignment.addAssignment("Queen", (7, 2))
-    # csp.setAssignment(testAssignment.assignment)
-
-    # return backTrack(csp, testAssignment)
     return backTrack(csp, Assignment(csp.maxNumberOfEachEnemies))
     
 
